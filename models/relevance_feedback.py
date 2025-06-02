@@ -12,7 +12,7 @@ from models.vlm_wrapper import VLMWrapperCaptioning, VLMWrapperRetrieval
 
 def rocchio_update(
         query_embeddings: torch.Tensor,
-        avg_relevance_vector: torch.Tensor,
+        avg_relevance_vector: Optional[torch.Tensor] = None,
         avg_non_relevance_vector: Optional[torch.Tensor] = None,
         alpha: float = 0.8,
         beta: float = 0.1,
@@ -33,10 +33,14 @@ def rocchio_update(
         norm_output: whether to normalize the output
     """
     # If negative feedback is not available, set its coefficient to zero
+    assert avg_relevance_vector is not None or avg_non_relevance_vector is not None
     if avg_non_relevance_vector is None:
         avg_non_relevance_vector = torch.zeros_like(avg_relevance_vector)
         gamma = 0.0
-    assert query_embeddings.shape == avg_relevance_vector.shape
+    elif avg_relevance_vector is None:
+        avg_relevance_vector = torch.zeros_like(avg_non_relevance_vector)
+        beta = 0.0
+    assert query_embeddings.shape == avg_relevance_vector.shape == avg_non_relevance_vector.shape
     updated_query_embeddings = (
         alpha * query_embeddings + \
         beta * avg_relevance_vector - \
@@ -349,6 +353,12 @@ class CaptionVLMRelevanceFeedback(RelevanceFeedback):
         self,
         vlm_wrapper_retrieval: VLMWrapperRetrieval,
         vlm_wrapper_captioning: VLMWrapperCaptioning,
+        alpha: float = 0.7,
+        beta: float = 0.15,
+        gamma: float = 0.15,
+        img_size: int = 224,
+        patch_size: int = 32,
+        user_feedback_weight: float = 0.5
     ):
         self.vlm_wrapper_retrieval = vlm_wrapper_retrieval
         self.vlm_wrapper_captioning = vlm_wrapper_captioning
@@ -368,7 +378,7 @@ class CaptionVLMRelevanceFeedback(RelevanceFeedback):
 
         text_prompt = (
             "The user is searching for: {}. The input image fragment is marked by the user as {} "
-            "to the query. Describe its content strictly in 5 words or less."
+            "to the query. Describe the content of the image fragment in one sentence."
         )
 
         images = []
@@ -398,19 +408,50 @@ class CaptionVLMRelevanceFeedback(RelevanceFeedback):
                     image=[images_vlm[i]],
                     prompt=[prompts_vlm[i]]
                 )
-                print(inputs["input_ids"].shape)
-                print(inputs["attention_mask"].shape)
-                print(inputs["pixel_values"].shape)
                 vlm_output = self.vlm_wrapper_captioning.generate(inputs=inputs)
                 vlm_output = self.vlm_wrapper_captioning.decode(vlm_output)
                 generated_text = [text.split("ASSISTANT: ")[-1] for text in vlm_output]
-                vlm_outputs.append(generated_text)
+                vlm_outputs.extend(generated_text)
         
-        print(vlm_outputs)
+        relevant_mask = np.array(relevant_mask)
+        vlm_outputs = np.array(vlm_outputs)
         
-        relevant_captions = vlm_outputs[relevant_mask]
-        irrelevant_captions = vlm_outputs[~relevant_mask]
+        relevant_captions = vlm_outputs[relevant_mask == 1].tolist()
+        irrelevant_captions = vlm_outputs[relevant_mask == 0].tolist()
 
-        print(relevant_captions)
-        print(irrelevant_captions)
+        if relevant_captions:
+            positive_inputs = self.vlm_wrapper_retrieval.process_inputs(
+                text=relevant_captions,
+            )
+            positive_embeddings = self.vlm_wrapper_retrieval.get_text_embeddings(
+                inputs=positive_inputs
+            )
+            for i in range(len(positive_embeddings)):
+                accumulated_query_embeddings = rocchio_update(
+                    query_embeddings=accumulated_query_embeddings,
+                    avg_relevance_vector=positive_embeddings[i],
+                    avg_non_relevance_vector=None,
+                    alpha=self.alpha,
+                    beta=self.beta,
+                    gamma=self.gamma,
+                    norm_output=True
+                )
+        if irrelevant_captions:
+            negative_inputs = self.vlm_wrapper_retrieval.process_inputs(
+                text=irrelevant_captions,
+            )
+            negative_embeddings = self.vlm_wrapper_retrieval.get_text_embeddings(
+                inputs=negative_inputs
+            )
+            for i in range(len(negative_embeddings)):
+                accumulated_query_embeddings = rocchio_update(
+                    query_embeddings=accumulated_query_embeddings,
+                    avg_relevance_vector=None,
+                    avg_non_relevance_vector=negative_embeddings[i],
+                    alpha=self.alpha,
+                    beta=self.beta,
+                    gamma=self.gamma,
+                    norm_output=True
+                )
 
+        return (accumulated_query_embeddings, None)
