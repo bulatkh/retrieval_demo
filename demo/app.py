@@ -1,5 +1,6 @@
 import argparse
 import os
+from typing import Any, Dict, List, Optional
 
 import gradio as gr
 import numpy as np
@@ -11,7 +12,7 @@ import faiss
 from models.attentive_summarizer import init_summarizer
 from models.configs import get_model_config
 from models.llava import init_llava
-from models.relevance_feedback import AFSRelevanceFeedback, CaptionVLMRelevanceFeedback
+from models.relevance_feedback import AFSRelevanceFeedback, CaptionVLMRelevanceFeedback, RocchioUpdate
 from utils.utils import get_timestamp, load_yaml, save_json
 
 
@@ -52,6 +53,9 @@ CAPTIONING_MODEL_CONFIG_PATH = args.captioning_model_config_path
 logs = {
     "start_timestamp": get_timestamp(),
     "config_path": CONFIG_PATH,
+    "summarizer_config_path": SUMMARIZER_CONFIG_PATH,
+    "summarizer_checkpoint_path": SUMMARIZER_CHECKPOINT_PATH,
+    "captioning_model_config_path": CAPTIONING_MODEL_CONFIG_PATH,
     "experiments": {},
 }
 
@@ -104,6 +108,8 @@ elif CAPTIONING_MODEL_CONFIG_PATH is not None:
         vlm_wrapper_retrieval=wrapper,
         vlm_wrapper_captioning=captioning_model,
     )
+rocchio_update = RocchioUpdate(alpha=0.6, beta=0.2, gamma=0.2)
+
 
 def resize_images_with_processor(images, processor):
     images = processor.image_processor.preprocess(
@@ -113,6 +119,7 @@ def resize_images_with_processor(images, processor):
         return_tensors="np"
     )["pixel_values"]
     return [Image.fromarray(image.transpose(1, 2, 0).astype(np.uint8)) for image in images]
+
 
 def update_logs_retrieval(experiment_id, retrieval_round, user_query, top_k, retrieved_image_paths, scores):
     logs["experiments"][experiment_id].append(
@@ -129,7 +136,18 @@ def update_logs_retrieval(experiment_id, retrieval_round, user_query, top_k, ret
     save_json(logs, config["RETRIEVAL_LOGS_PATH"])
 
 
-def update_logs_feedback(experiment_id, retrieval_round, user_query, annotations):
+def update_logs_feedback(
+        experiment_id: str,
+        retrieval_round: int,
+        user_query: str,
+        annotations: List[Dict[str, Any]],
+        relevant_textual_features: Optional[str] = None,
+        irrelevant_textual_features: Optional[str] = None
+    ):
+    if relevant_textual_features is None:
+        relevant_textual_features = ""
+    if irrelevant_textual_features is None:
+        irrelevant_textual_features = ""
     logs["experiments"][experiment_id].append(
         {
             "timestamp": get_timestamp(),
@@ -137,6 +155,8 @@ def update_logs_feedback(experiment_id, retrieval_round, user_query, annotations
             "round": retrieval_round,
             "user_query": user_query,
             "annotations": annotations,
+            "relevant_textual_features": relevant_textual_features.split(", "),
+            "irrelevant_textual_features": irrelevant_textual_features.split(", "),
         }
     )
     save_json(logs, config["RETRIEVAL_LOGS_PATH"])
@@ -167,7 +187,47 @@ def image_search(query, top_k=5):
     return retrieved_images, scores, retrieved_image_paths
 
 
-def feedback_loop(query, top_k, image_paths, annotator_json_boxes_list):
+def process_feedback(query, top_k, image_paths, annotator_json_boxes_list):
+    """Process feedback from the annotator"""
+
+    if SUMMARIZER_CONFIG_PATH is not None:
+        relevance_feedback_results = afs_relevance_feedback(
+                query=query,
+                relevant_image_paths=image_paths,
+                visualization=True,
+                top_k_feedback=top_k,
+                annotator_json_boxes_list=annotator_json_boxes_list,
+            )
+    
+    elif CAPTIONING_MODEL_CONFIG_PATH is not None:
+        relevance_feedback_results = captioning_relevance_feedback(
+            query=query,
+            relevant_image_paths=image_paths,
+            visualization=True,
+            top_k_feedback=top_k,
+            annotator_json_boxes_list=annotator_json_boxes_list,
+            prompt_based_on_query=False,
+            prompt=captioning_model_config.get("PROMPT", None)
+        )
+    
+    return (
+        relevance_feedback_results["positive"],
+        relevance_feedback_results["negative"],
+        relevance_feedback_results.get("relevant_captions", ""),
+        relevance_feedback_results.get("irrelevant_captions", ""),
+        relevance_feedback_results["explanation"],
+    )
+
+
+def feedback_loop(
+    query, 
+    top_k, 
+    image_paths, 
+    annotator_json_boxes_list,
+    relevant_textual_features: Optional[str] = None,
+    irrelevant_textual_features: Optional[str] = None,
+    fuse_initial_query: bool = False
+):
     """Apply feedback to the image search"""
     global retrieval_round
     
@@ -176,39 +236,60 @@ def feedback_loop(query, top_k, image_paths, annotator_json_boxes_list):
         query_embedding = wrapper.get_text_embeddings(processed_query)
 
     if SUMMARIZER_CONFIG_PATH is not None:
-        updated_query_embedding, images_with_saliency = afs_relevance_feedback(
+        relevance_feedback_results = afs_relevance_feedback(
                 query=query,
-                accumulated_query_embeddings=accumulated_query_embeddings["query_embedding"],
                 relevant_image_paths=image_paths,
                 visualization=True,
                 top_k_feedback=top_k,
                 annotator_json_boxes_list=annotator_json_boxes_list
             )
     elif CAPTIONING_MODEL_CONFIG_PATH is not None:
-        updated_query_embedding, images_with_saliency = captioning_relevance_feedback(
+        relevance_feedback_results = captioning_relevance_feedback(
             query=query,
-            accumulated_query_embeddings=accumulated_query_embeddings["query_embedding"],
             relevant_image_paths=image_paths,
-            visualization=True,
+            visualization=False,
             top_k_feedback=top_k,
-            annotator_json_boxes_list=annotator_json_boxes_list
+            annotator_json_boxes_list=annotator_json_boxes_list,
+            prompt_based_on_query=False,
+            relevant_captions=relevant_textual_features,
+            irrelevant_captions=irrelevant_textual_features
         )
-    accumulated_query_embeddings["query_embedding"] = updated_query_embedding
 
-    scores, img_ids = index.search(updated_query_embedding, top_k)
+    rocchio_query_embedding = (accumulated_query_embeddings["query_embedding"] + query_embedding) / 2 if (
+        fuse_initial_query
+    ) else accumulated_query_embeddings["query_embedding"]
+    accumulated_query_embeddings["query_embedding"] = rocchio_update(
+        query_embeddings=rocchio_query_embedding,
+        positive_embeddings=relevance_feedback_results["positive"],
+        negative_embeddings=relevance_feedback_results["negative"]
+    )
+
+    scores, img_ids = index.search(accumulated_query_embeddings["query_embedding"], top_k)
     scores = scores.squeeze().tolist()
     img_ids = img_ids.squeeze().tolist()
     retrieved_image_paths = [candidate_image_paths[i] for i in img_ids]
     retrieved_images = [Image.open(path) for path in retrieved_image_paths]
     retrieved_images = resize_images_with_processor(retrieved_images, wrapper.processor)
 
-    update_logs_feedback(experiment_id, retrieval_round, query, annotator_json_boxes_list)
+    update_logs_feedback(
+        experiment_id,
+        retrieval_round,
+        query,
+        annotator_json_boxes_list,
+        relevant_textual_features,
+        irrelevant_textual_features
+    )
 
     retrieval_round += 1
 
     update_logs_retrieval(experiment_id, retrieval_round, query, top_k, retrieved_image_paths, scores)
 
-    return retrieved_images, scores, retrieved_image_paths, images_with_saliency
+    return (
+        retrieved_images, 
+        scores, 
+        retrieved_image_paths, 
+        relevance_feedback_results["explanation"]
+    )
 
 
 def get_boxes_json(annotations):
@@ -216,10 +297,17 @@ def get_boxes_json(annotations):
     return annotations["boxes"] if annotations["boxes"] else None
 
 
-with gr.Blocks(title="Multimodal Retrieval Demo") as demo:
+css = """
+#warning {background-color: #FFCCCB} 
+.feedback {font-size: 20px !important;}
+.feedback textarea {font-size: 20px !important;}
+"""
+
+with gr.Blocks(title="Multimodal Retrieval Demo", theme=gr.themes.Soft(), css=css) as demo:
     gr.Markdown("# Text-to-Image Search")
 
     image_top_k = gr.State(value=5)
+    fuse_initial_query = gr.State(value=config.get("FUSE_INITIAL_QUERY", True))
 
     with gr.Tab("Image Search"):
         with gr.Row():
@@ -251,11 +339,6 @@ with gr.Blocks(title="Multimodal Retrieval Demo") as demo:
                     annotator_json_boxes = gr.JSON(visible=True)
                     annotator_json_boxes_list.append(annotator_json_boxes)
                     button_get.click(get_boxes_json, inputs=annotator, outputs=annotator_json_boxes)
-            
-        with gr.Row():
-            image_attention_gallery = gr.Gallery(
-                label="Feedback Explanations (Previous Round)", columns=5, rows=1, visible=config["SHOW_IMAGE_GALLERY"]
-            )
 
         def format_outputs_image_search(images, scores, retrieved_image_paths):
             outputs_annotators = []
@@ -274,12 +357,63 @@ with gr.Blocks(title="Multimodal Retrieval Demo") as demo:
         
         relevant_image_paths = gr.State(value=None)
 
+        with gr.Row():
+            process_feedback_btn = gr.Button("Process feedback")
+            
+        with gr.Row():
+            image_attention_gallery = gr.Gallery(
+                label="Feedback Explanations (Previous Round)", columns=5, rows=1, visible=config["SHOW_IMAGE_GALLERY"]
+            )
+
         image_search_btn.click(
             fn=lambda query, top_k: format_outputs_image_search(*image_search(query, top_k)),
             inputs=[query, image_top_k],
             outputs=[image_gallery, relevant_image_paths, image_attention_gallery, *annotators],
         )
-    
+
+        with gr.Row():
+            with gr.Column():
+                    relevant_features = gr.Textbox(
+                        label="Relevant features",
+                        visible=True if CAPTIONING_MODEL_CONFIG_PATH is not None else False,
+                        interactive=True,
+                        elem_classes=["feedback"]
+                    )
+            with gr.Column():
+                    irrelevant_features = gr.Textbox(
+                        label="Irrelevant features",
+                        visible=True if CAPTIONING_MODEL_CONFIG_PATH is not None else False,
+                        interactive=True,
+                        elem_classes=["feedback"]
+                    )
+
+
+        def format_outputs_process_feedback(positive, negative, relevant_captions, irrelevant_captions, explanation):
+            outputs_explanation = []
+            for i in range(len(explanation)):
+                outputs_explanation.append(explanation[i])
+            for i, caption in enumerate(relevant_captions):
+                if caption.endswith("."):
+                    relevant_captions[i] = caption[:-1]
+            outputs_relevant_captions = ", ".join(relevant_captions)
+            for i, caption in enumerate(irrelevant_captions):
+                if caption.endswith("."):
+                    irrelevant_captions[i] = caption[:-1]
+            outputs_irrelevant_captions = ", ".join(irrelevant_captions)
+            final_outputs =  [outputs_relevant_captions] \
+                + [outputs_irrelevant_captions] \
+                + [outputs_explanation]
+            return final_outputs
+            
+
+        process_feedback_btn.click(
+            fn=lambda query, top_k, image_paths, *annotator_json_boxes_list: format_outputs_process_feedback(
+                *process_feedback(query, top_k, image_paths, annotator_json_boxes_list)
+            ),
+            inputs=[query, image_top_k, relevant_image_paths, *annotator_json_boxes_list],
+            outputs=[relevant_features, irrelevant_features, image_attention_gallery],
+        )
+
         with gr.Row():
             apply_feedback_btn = gr.Button("Apply Feedback")
 
@@ -287,24 +421,40 @@ with gr.Blocks(title="Multimodal Retrieval Demo") as demo:
             outputs_annotators = []
             outputs_gallery = []
             outputs_retrieved_image_paths = []  
-            outputs_images_with_saliency = []
             for i in range(len(images)):
                 outputs_annotators.append({"image": images[i], "boxes": []})
                 outputs_gallery.append((images[i], f"Relevance score: {scores[i]}"))
                 outputs_retrieved_image_paths.append(retrieved_image_paths[i])
-                outputs_images_with_saliency.append(images_with_saliency[i])
             final_outputs = [outputs_gallery] \
                 + [outputs_retrieved_image_paths] \
-                + [outputs_images_with_saliency] \
                 + outputs_annotators
             return final_outputs
 
+
+        def feedback_interface(
+            query,
+            top_k,
+            image_paths,
+            relevant_features,
+            irrelevant_features,
+            fuse_initial_query,
+            *annotator_json_boxes_list,
+        ):
+            results = feedback_loop(
+                query,
+                top_k,
+                image_paths,
+                annotator_json_boxes_list,
+                relevant_features,
+                irrelevant_features,
+                fuse_initial_query
+            )
+            return format_outputs_feedback(*results)
+        
         apply_feedback_btn.click(
-            fn=lambda query, top_k, image_paths, *annotator_json_boxes_list: format_outputs_feedback(
-                *feedback_loop(query, top_k, image_paths, annotator_json_boxes_list)
-            ),
-            inputs=[query, image_top_k, relevant_image_paths, *annotator_json_boxes_list],
-            outputs=[image_gallery, relevant_image_paths, image_attention_gallery, *annotators],
+            fn=feedback_interface,
+            inputs=[query, image_top_k, relevant_image_paths, relevant_features, irrelevant_features, fuse_initial_query, *annotator_json_boxes_list],
+            outputs=[image_gallery, relevant_image_paths, *annotators],
         ).then(
             fn=lambda: [None for _ in annotator_json_boxes_list],
             inputs=None,

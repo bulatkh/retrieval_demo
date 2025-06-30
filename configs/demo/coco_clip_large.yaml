@@ -1,0 +1,12 @@
+IMAGE_CORPUS_PATH: "data/coco/" 
+INDEX_PATH: "faiss/openai/clip-vit-large-patch14/image_index.faiss"
+
+VLM_MODEL_FAMILY: "clip" 
+VLM_MODEL_NAME: "openai/clip-vit-large-patch14"
+IMG_SIZE: 224
+PATCH_SIZE: 14
+
+SHOW_IMAGE_GALLERY: True
+SHOW_ANNOTATORS: True
+
+RETRIEVAL_LOGS_PATH: "logs/retrieval_logs_clip_large.json"
