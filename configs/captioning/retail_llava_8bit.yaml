@@ -1,4 +1,4 @@
 MODEL_FAMILY: "llava"
 MODEL_ID: "llava-hf/llava-1.5-7b-hf"
 USE_8BIT: true
-PROMPT: "The image shows a part of a product from a supermarket. Describe distinct features of the product in 5 words maximum."
+PROMPT: "Describe distinct features of the image in 5 words maximum."

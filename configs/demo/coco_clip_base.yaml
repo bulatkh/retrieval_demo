@@ -1,5 +1,5 @@
 IMAGE_CORPUS_PATH: "data/coco/" 
-INDEX_PATH: "faiss/openai/clip-vit-base-patch32/image_index.faiss"
+INDEX_PATH: "faiss/coco/openai/clip-vit-base-patch32/image_index.faiss"
 
 VLM_MODEL_FAMILY: "clip" 
 VLM_MODEL_NAME: "openai/clip-vit-base-patch32"

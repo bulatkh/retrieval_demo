@@ -303,7 +303,7 @@ css = """
 .feedback textarea {font-size: 20px !important;}
 """
 
-with gr.Blocks(title="Multimodal Retrieval Demo", theme=gr.themes.Soft(), css=css) as demo:
+with gr.Blocks(title="Multimodal Retrieval Demo", css=css) as demo:
     gr.Markdown("# Text-to-Image Search")
 
     image_top_k = gr.State(value=5)

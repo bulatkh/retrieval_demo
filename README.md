@@ -33,15 +33,17 @@ We use two open-source datasets as use-cases for our demo:
     unzip test2014.zip -d coco/
     ```
 
-    Build faiss index with `clip-vit-large-patch14`:
+    Build a faiss index with `clip-vit-large-patch14` for the test set:
     ```
     python write_faiss_index.py \
-        --data data/coco/ \
-        --output faiss/retail/ \
+        --data data/coco/test2014 \
+        --output faiss/coco/ \
         --batch_size 64 \
         --model_family clip \
         --model_id openai/clip-vit-large-patch14
     ```
+
+    It is also possible to index the whole database (will take longer) with `--data data/coco/`.
 
 2. Retail catalogue search with Retail-786k:
     Data preparation:
@@ -55,7 +57,7 @@ We use two open-source datasets as use-cases for our demo:
     ```
     python write_faiss_index.py \
         --data data/retail-786k_256/ \
-        --output faiss/retail/ \
+        --output faiss/retail/test \
         --batch_size 64 \
         --model_family clip \
         --model_id openai/clip-vit-large-patch14
