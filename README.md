@@ -1,5 +1,28 @@
 # VisualReF: Visual Relevance Feedback Prototype for Interactive Image Retrieval
 
+VisualReFis the prototype of an interactive image search system based on visual relevance feedback.
+
+The system that uses relevance feedback provided by the user to improve the search results. Specifically, the user can annotate the relevance and irrelevance of the retrieved images. These annotations are then used by image captioning model (currently, LLaVA-1.5 7b) to generate captions for image fragments from relevance feedback. These captions are then used to refine the search results using Rocchio's algorithm.
+
+## Example of the use case:
+(a) Input query and retrieved images:
+
+![](assets/a.png)
+
+(b) User annotates the relevance and irrelevance of the retrieved images and the system returns the explanation of the relevance (captioning results)
+
+![](assets/b.png)
+
+(c) User launches the refinement process and gets the updated search results:
+
+![](assets/c.png)
+
+Check more examples in the [assets](assets) folder.
+
+## Configs:
+- Captioning model and prompts: `configs/captioning/`. Prompts used to generate captions can be changed based on the use case and level of detail required. Advanced prompting techniques can be used to improve the quality of the captions.
+- Demo: `configs/demo/`. Configs for the demo app: retrieval backbone (CLIP and SigLIP are currently supported), image database, and captioning model.
+
 ## Getting started
 
 Python version: 3.11

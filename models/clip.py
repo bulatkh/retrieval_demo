@@ -1,11 +1,8 @@
 from dataclasses import dataclass, field
 from typing import Any, Dict
 
-from transformers import (
-    CLIPModel,
-    CLIPProcessor
-)
 import torch
+from transformers import CLIPModel, CLIPProcessor
 
 from models.vlm_wrapper import VLMWrapperRetrieval
 

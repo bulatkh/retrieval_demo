@@ -1,3 +1,4 @@
 MODEL_FAMILY: "llava"
 MODEL_ID: "llava-hf/llava-1.5-7b-hf"
 USE_8BIT: true
+PROMPT: "Describe distinct features of the image in 5-10 words."
