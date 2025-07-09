@@ -180,6 +180,5 @@ faiss/*
 logs/*
 results/*
 
-*.png
 *.jpg
 *.jpeg

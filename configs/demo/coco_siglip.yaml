@@ -1,0 +1,12 @@
+IMAGE_CORPUS_PATH: "data/coco/" 
+INDEX_PATH: "faiss/coco/google/siglip-large-patch16-256/image_index.faiss"
+
+VLM_MODEL_FAMILY: "siglip" 
+VLM_MODEL_NAME: "google/siglip-large-patch16-256"
+IMG_SIZE: 256
+PATCH_SIZE: 16
+
+SHOW_IMAGE_GALLERY: True
+SHOW_ANNOTATORS: True
+
+RETRIEVAL_LOGS_PATH: "logs/retrieval_logs_siglip_large.json"
