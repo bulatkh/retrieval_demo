@@ -17,7 +17,7 @@ The system that uses relevance feedback provided by the user to improve the sear
 
 ![](assets/c.png)
 
-Check more examples in the [assets](assets) folder.
+Check more examples in the `./assets` folder.
 
 ## Configs:
 - Captioning model and prompts: `configs/captioning/`. Prompts used to generate captions can be changed based on the use case and level of detail required. Advanced prompting techniques can be used to improve the quality of the captions.
