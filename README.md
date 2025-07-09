@@ -25,9 +25,11 @@ Check more examples in the [assets](assets) folder.
 
 ## Getting started
 
+The prototype is implemented using Gradio, PyTorch, and Hugging Face. It supports CPU and GPU, with a GPU (16+ GB VRAM) recommended for faster inference.
+
 Python version: 3.11
 
-We use venv for managing project dependencies.
+We use `venv` for managing project dependencies.
 
 ```
 python -m venv venv
