@@ -45,7 +45,7 @@ It is also possible to index the whole database (will take longer) with `--data 
 
 ## Launch the prototype
 
-We use `clip-vit-large-patch14` with summarizer train on the COCO dataset. The weights can be downloaded from [here](). Unzip the file and make sure it is available as `checkpoints/clip-vit-large-patch14-2025-03-24_15_09_55_874696/epoch=19-val_loss=0.08.ckpt`.
+We use `clip-vit-large-patch14` with summarizer train on the COCO dataset. The weights can be downloaded from [here](https://drive.google.com/file/d/1Vzucxxbxa8QBMu4c11wlUe60hEvNwpdi/view). Unzip the file and make sure it is available as `checkpoints/clip-vit-large-patch14-2025-03-24_15_09_55_874696/epoch=19-val_loss=0.08.ckpt`.
 
 Launch the demo:
     ```
