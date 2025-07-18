@@ -11,8 +11,7 @@ from PIL import Image
 import faiss
 from models.attentive_summarizer import init_summarizer
 from models.configs import get_model_config
-from models.llava import init_llava
-from models.relevance_feedback import AFSRelevanceFeedback, CaptionVLMRelevanceFeedback, RocchioUpdate
+from models.relevance_feedback import AFSRelevanceFeedback, RocchioUpdate
 from utils.utils import get_timestamp, load_yaml, save_json
 
 
@@ -35,12 +34,6 @@ def parse_args():
         default=None,
         help="Path to the summarizer checkpoint file"
     )
-    parser.add_argument(
-        "--captioning_model_config_path", 
-        type=str, 
-        default=None,
-        help="Path to captioning model config file"
-    )
     return parser.parse_args()
 
 args = parse_args()
@@ -48,14 +41,12 @@ args = parse_args()
 CONFIG_PATH = args.config_path
 SUMMARIZER_CONFIG_PATH = args.summarizer_config_path
 SUMMARIZER_CHECKPOINT_PATH = args.summarizer_checkpoint_path
-CAPTIONING_MODEL_CONFIG_PATH = args.captioning_model_config_path
 
 logs = {
     "start_timestamp": get_timestamp(),
     "config_path": CONFIG_PATH,
     "summarizer_config_path": SUMMARIZER_CONFIG_PATH,
     "summarizer_checkpoint_path": SUMMARIZER_CHECKPOINT_PATH,
-    "captioning_model_config_path": CAPTIONING_MODEL_CONFIG_PATH,
     "experiments": {},
 }
 
@@ -80,7 +71,7 @@ with open(os.path.join(os.path.dirname(config["INDEX_PATH"]), "image_paths.txt")
     candidate_image_paths = [line.strip() for line in f.readlines()]
 
 # Initialize relevance feedback model
-if SUMMARIZER_CONFIG_PATH is not None:
+if SUMMARIZER_CONFIG_PATH is not None and SUMMARIZER_CHECKPOINT_PATH is not None:
     summarizer_config = load_yaml(SUMMARIZER_CONFIG_PATH)
     summarizer = init_summarizer(summarizer_config, SUMMARIZER_CHECKPOINT_PATH)
     afs_relevance_feedback = AFSRelevanceFeedback(
@@ -90,25 +81,9 @@ if SUMMARIZER_CONFIG_PATH is not None:
         img_size=model.config.vision_config.image_size,
         patch_size=model.config.vision_config.patch_size,
     )
-elif CAPTIONING_MODEL_CONFIG_PATH is not None:
-    captioning_model_config = load_yaml(CAPTIONING_MODEL_CONFIG_PATH)
-    model_config = get_model_config(
-        captioning_model_config["MODEL_FAMILY"], 
-        captioning_model_config["MODEL_ID"]
-    )
-    if captioning_model_config["MODEL_FAMILY"] == "llava":
-        captioning_model = init_llava(
-            model_config=model_config,
-            device=device,
-            use_8bit=captioning_model_config["USE_8BIT"]
-        )
-    else:
-        raise ValueError(f"Captioning model family {captioning_model_config['model_family']} not supported")
-    captioning_relevance_feedback = CaptionVLMRelevanceFeedback(
-        vlm_wrapper_retrieval=wrapper,
-        vlm_wrapper_captioning=captioning_model,
-    )
-rocchio_update = RocchioUpdate(alpha=0.6, beta=0.2, gamma=0.2)
+else:
+    raise ValueError("Summarizer config path and checkpoint path are required")
+rocchio_update = RocchioUpdate(alpha=0.5, beta=0.25, gamma=0.25)
 
 
 def resize_images_with_processor(images, processor):
@@ -141,13 +116,7 @@ def update_logs_feedback(
         retrieval_round: int,
         user_query: str,
         annotations: List[Dict[str, Any]],
-        relevant_textual_features: Optional[str] = None,
-        irrelevant_textual_features: Optional[str] = None
     ):
-    if relevant_textual_features is None:
-        relevant_textual_features = ""
-    if irrelevant_textual_features is None:
-        irrelevant_textual_features = ""
     logs["experiments"][experiment_id].append(
         {
             "timestamp": get_timestamp(),
@@ -155,8 +124,6 @@ def update_logs_feedback(
             "round": retrieval_round,
             "user_query": user_query,
             "annotations": annotations,
-            "relevant_textual_features": relevant_textual_features.split(", "),
-            "irrelevant_textual_features": irrelevant_textual_features.split(", "),
         }
     )
     save_json(logs, config["RETRIEVAL_LOGS_PATH"])
@@ -199,17 +166,6 @@ def process_feedback(query, top_k, image_paths, annotator_json_boxes_list):
                 annotator_json_boxes_list=annotator_json_boxes_list,
             )
     
-    elif CAPTIONING_MODEL_CONFIG_PATH is not None:
-        relevance_feedback_results = captioning_relevance_feedback(
-            query=query,
-            relevant_image_paths=image_paths,
-            visualization=True,
-            top_k_feedback=top_k,
-            annotator_json_boxes_list=annotator_json_boxes_list,
-            prompt_based_on_query=False,
-            prompt=captioning_model_config.get("PROMPT", None)
-        )
-    
     return (
         relevance_feedback_results["positive"],
         relevance_feedback_results["negative"],
@@ -224,8 +180,6 @@ def feedback_loop(
     top_k, 
     image_paths, 
     annotator_json_boxes_list,
-    relevant_textual_features: Optional[str] = None,
-    irrelevant_textual_features: Optional[str] = None,
     fuse_initial_query: bool = False
 ):
     """Apply feedback to the image search"""
@@ -243,17 +197,8 @@ def feedback_loop(
                 top_k_feedback=top_k,
                 annotator_json_boxes_list=annotator_json_boxes_list
             )
-    elif CAPTIONING_MODEL_CONFIG_PATH is not None:
-        relevance_feedback_results = captioning_relevance_feedback(
-            query=query,
-            relevant_image_paths=image_paths,
-            visualization=False,
-            top_k_feedback=top_k,
-            annotator_json_boxes_list=annotator_json_boxes_list,
-            prompt_based_on_query=False,
-            relevant_captions=relevant_textual_features,
-            irrelevant_captions=irrelevant_textual_features
-        )
+    else:
+        raise ValueError("Summarizer config path and checkpoint path are required")
 
     rocchio_query_embedding = (accumulated_query_embeddings["query_embedding"] + query_embedding) / 2 if (
         fuse_initial_query
@@ -276,8 +221,6 @@ def feedback_loop(
         retrieval_round,
         query,
         annotator_json_boxes_list,
-        relevant_textual_features,
-        irrelevant_textual_features
     )
 
     retrieval_round += 1
@@ -307,7 +250,7 @@ with gr.Blocks(title="Multimodal Retrieval Demo", css=css) as demo:
     gr.Markdown("# Text-to-Image Search")
 
     image_top_k = gr.State(value=5)
-    fuse_initial_query = gr.State(value=config.get("FUSE_INITIAL_QUERY", True))
+    fuse_initial_query = gr.State(value=config.get("FUSE_INITIAL_QUERY", False))
 
     with gr.Tab("Image Search"):
         with gr.Row():
@@ -375,14 +318,14 @@ with gr.Blocks(title="Multimodal Retrieval Demo", css=css) as demo:
             with gr.Column():
                     relevant_features = gr.Textbox(
                         label="Relevant features",
-                        visible=True if CAPTIONING_MODEL_CONFIG_PATH is not None else False,
+                        visible=False,
                         interactive=True,
                         elem_classes=["feedback"]
                     )
             with gr.Column():
                     irrelevant_features = gr.Textbox(
                         label="Irrelevant features",
-                        visible=True if CAPTIONING_MODEL_CONFIG_PATH is not None else False,
+                        visible=False,
                         interactive=True,
                         elem_classes=["feedback"]
                     )
@@ -435,8 +378,6 @@ with gr.Blocks(title="Multimodal Retrieval Demo", css=css) as demo:
             query,
             top_k,
             image_paths,
-            relevant_features,
-            irrelevant_features,
             fuse_initial_query,
             *annotator_json_boxes_list,
         ):
@@ -445,15 +386,13 @@ with gr.Blocks(title="Multimodal Retrieval Demo", css=css) as demo:
                 top_k,
                 image_paths,
                 annotator_json_boxes_list,
-                relevant_features,
-                irrelevant_features,
                 fuse_initial_query
             )
             return format_outputs_feedback(*results)
         
         apply_feedback_btn.click(
             fn=feedback_interface,
-            inputs=[query, image_top_k, relevant_image_paths, relevant_features, irrelevant_features, fuse_initial_query, *annotator_json_boxes_list],
+            inputs=[query, image_top_k, relevant_image_paths, fuse_initial_query, *annotator_json_boxes_list],
             outputs=[image_gallery, relevant_image_paths, *annotators],
         ).then(
             fn=lambda: [None for _ in annotator_json_boxes_list],

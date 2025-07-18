@@ -90,10 +90,10 @@ class AttentivePooler(nn.Module):
             if m.bias is not None:
                 nn.init.constant_(m.bias, 0)
 
-    def forward(self, q, x, mask=None):
+    def forward(self, q, x, mask=None, add_vals_to_xattn=None):
         prepend_cls = self.q_cls.expand(q.shape[0], -1, -1)
         q = torch.cat([prepend_cls, q], dim=1)
-        q, xattn = self.cross_attention_block(q, x, mask=mask)
+        q, xattn = self.cross_attention_block(q, x, mask=mask, add_vals_to_xattn=add_vals_to_xattn)
         if self.blocks is not None:
             for blk in self.blocks:
                 q = blk(q)
@@ -261,7 +261,7 @@ class CrossAttention(nn.Module):
         self.proj = nn.Linear(dim, dim)
         self.use_sdpa = use_sdpa
 
-    def forward(self, q, x, mask=None):
+    def forward(self, q, x, mask=None, add_vals_to_xattn=None):
         B, n, C = q.shape
         q = self.q(q).reshape(B, n, self.num_heads, C // self.num_heads).permute(0, 2, 1, 3)
 
@@ -275,6 +275,8 @@ class CrossAttention(nn.Module):
                 xattn = None
         else:
             xattn = (q @ k.transpose(-2, -1)) * self.scale
+            if add_vals_to_xattn is not None:
+                xattn = xattn + add_vals_to_xattn.reshape(1, 1, 1, -1).expand_as(xattn)
             if mask is not None:
                 if mask.ndim == 2:
                     mask = mask.unsqueeze(0).unsqueeze(0)
@@ -306,8 +308,8 @@ class CrossAttentionBlock(nn.Module):
         mlp_hidden_dim = int(dim * mlp_ratio)
         self.mlp = MLP(in_features=dim, hidden_features=mlp_hidden_dim, act_layer=act_layer)
 
-    def forward(self, q, x, mask=None):
-        y, xattn = self.xattn(q, self.norm1(x), mask=mask)
+    def forward(self, q, x, mask=None, add_vals_to_xattn=None):
+        y, xattn = self.xattn(q, self.norm1(x), mask=mask, add_vals_to_xattn=add_vals_to_xattn)
         q = q + y
         q = q + self.mlp(self.norm2(q))
         return q, xattn

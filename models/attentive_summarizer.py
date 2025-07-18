@@ -129,7 +129,8 @@ class AttentiveSummarizer(nn.Module):
             q: Union[torch.Tensor, Dict[str, Any]],
             text_inputs: Optional[Union[torch.Tensor, Dict[str, Any]]] = None,
             vision_inputs: Optional[Union[torch.Tensor, Dict[str, Any]]] = None,
-            mask: Optional[torch.Tensor] = None
+            mask: Optional[torch.Tensor] = None,
+            add_vals_to_xattn: Optional[torch.Tensor] = None
     ):
         assert text_inputs is not None or vision_inputs is not None
 
@@ -194,7 +195,7 @@ class AttentiveSummarizer(nn.Module):
         elif vision_inputs is not None:
             text_image_features = vision_features
 
-        x, xattn = self.pooler(q_features, text_image_features, mask=mask)
+        x, xattn = self.pooler(q_features, text_image_features, mask=mask, add_vals_to_xattn=add_vals_to_xattn)
         x = self.projection(x[:, 0, :])
         return x, xattn
 
