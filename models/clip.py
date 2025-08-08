@@ -28,7 +28,8 @@ class CLIPWrapper(VLMWrapperRetrieval):
             images=images,
             text=text,
             return_tensors="pt",
-            padding=True
+            padding=True,
+            truncation=True
         ).to(self.model.device)
 
     def get_embeddings(self, inputs: Dict[str, Any], **kwargs) -> Any:
@@ -45,7 +46,7 @@ class CLIPWrapper(VLMWrapperRetrieval):
     def get_text_embeddings(self, inputs: Dict[str, Any], **kwargs) -> Any:
         return self.model.get_text_features(
             input_ids=inputs['input_ids'],
-            attention_mask=inputs['attention_mask']
+            attention_mask=inputs['attention_mask'],
         )
 
     def get_image_embeddings(self, inputs: Dict[str, Any], **kwargs) -> Any:

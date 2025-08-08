@@ -85,13 +85,10 @@ rocchio_update = RocchioUpdate(alpha=0.6, beta=0.2, gamma=0.2)
 
 
 def resize_images_with_processor(images, processor):
-    images = processor.image_processor.preprocess(
-        images,
-        do_normalize=False,
-        do_rescale=False,
-        return_tensors="np"
-    )["pixel_values"]
-    return [Image.fromarray(image.transpose(1, 2, 0).astype(np.uint8)) for image in images]
+    images_resized = [image.resize((config["IMG_SIZE"], config["IMG_SIZE"])) for image in images]
+    if images_resized[0].mode != 'RGB':
+        images_resized = [image.convert('RGB') for image in images_resized]
+    return images_resized
 
 
 def update_logs_retrieval(experiment_id, retrieval_round, user_query, top_k, retrieved_image_paths, scores):
