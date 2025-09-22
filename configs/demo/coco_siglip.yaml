@@ -9,4 +9,6 @@ PATCH_SIZE: 16
 SHOW_IMAGE_GALLERY: True
 SHOW_ANNOTATORS: True
 
+TOP_K: 5
+
 RETRIEVAL_LOGS_PATH: "logs/retrieval_logs_siglip_large.json"
