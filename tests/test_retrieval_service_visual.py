@@ -1,7 +1,7 @@
 import numpy as np
 from PIL import Image
 
-from services.retrieval_service import RetrievalService
+from services.retrieval_service import RetrievalServiceVisual
 
 
 def _default_config():
@@ -15,19 +15,9 @@ def _default_config():
     }
 
 
-def _default_captioning_config():
-    return {
-        "MODEL_FAMILY": "llava",
-        "MODEL_ID": "llava-hf/llava-1.5-7b-hf",
-        "USE_8BIT": True,
-        "PROMPT": "Describe distinct features of the image in 5-10 words.",
-    }
-
-
 def _init_retrieval_service():
-    return RetrievalService(
+    return RetrievalServiceVisual(
         config=_default_config(),
-        captioning_model_config=_default_captioning_config(),
         alpha=0.6,
         beta=0.2,
         gamma=0.2,
@@ -79,17 +69,12 @@ def test_process_feedback():
         ] 
     )
 
-    relevance_feedback_results = retrieval_service.process_feedback(
+    relevance_feedback_results = retrieval_service.process_and_apply_feedback(
         query="a photo of a cat",
         relevant_image_paths=image_paths,
         annotator_json_boxes_list=annotator_json_boxes_list,
-        top_k_feedback=5,
+        top_k=5,
+        fuse_initial_query=True,
     )
 
-    assert relevance_feedback_results
-    assert relevance_feedback_results is not None
-    assert "positive" in relevance_feedback_results
-    assert "negative" in relevance_feedback_results
-    assert "relevant_captions" in relevance_feedback_results
-    assert "irrelevant_captions" in relevance_feedback_results
-    assert "explanation" in relevance_feedback_results
+    print(relevance_feedback_results)

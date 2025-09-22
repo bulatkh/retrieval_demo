@@ -7,7 +7,11 @@ from PIL import Image
 import faiss
 from models.configs import get_model_config
 from models.llava import init_llava
-from models.relevance_feedback import CaptionVLMRelevanceFeedback, RocchioUpdate
+from models.relevance_feedback import (
+    CaptionVLMRelevanceFeedback,
+    ImageBasedVLMRelevanceFeedback,
+    RocchioUpdate, 
+)
 from utils.image_utils import resize_images
 
 
@@ -15,14 +19,15 @@ class RetrievalService:
     def __init__(
         self,
         config: Dict[str, Any],
-        captioning_model_config: Dict[str, Any],
+        captioning_model_config: Optional[Dict[str, Any]] = None,
         device: str = "cuda" if torch.cuda.is_available() else "cpu",
         alpha: float = 0.6,
         beta: float = 0.2,
         gamma: float = 0.2,
+        multiple: bool = False,
     ):
         self.config = config
-        self.captioning_model_config = captioning_model_config
+        self.captioning_model_config = captioning_model_config if captioning_model_config is not None else None
         self.faiss_index = config["INDEX_PATH"]
         self.accumulated_query_embeddings = {"query_embedding": None}
         self.retrieval_round = 1
@@ -30,9 +35,10 @@ class RetrievalService:
         self.device = device
         
         self._init_backbone()
-        self._init_captioning_model()
-        self._init_captioning_relevance_feedback()
-        self._init_rocchio_update(alpha=alpha, beta=beta, gamma=gamma)
+        if self.captioning_model_config is not None:
+            self._init_captioning_model()
+            self._init_captioning_relevance_feedback()
+        self._init_rocchio_update(alpha=alpha, beta=beta, gamma=gamma, multiple=multiple)
         self._init_faiss_index()
 
     def _init_backbone(self):
@@ -74,8 +80,14 @@ class RetrievalService:
             vlm_wrapper_captioning=self.captioning_model,
         )
 
-    def _init_rocchio_update(self, alpha: float = 0.6, beta: float = 0.2, gamma: float = 0.2):
-        self.rocchio_update = RocchioUpdate(alpha=alpha, beta=beta, gamma=gamma)
+    def _init_rocchio_update(
+        self,
+        alpha: float = 0.6,
+        beta: float = 0.2,
+        gamma: float = 0.2,
+        multiple: bool = False,
+    ):
+        self.rocchio_update = RocchioUpdate(alpha=alpha, beta=beta, gamma=gamma, multiple=multiple)
 
     def _init_faiss_index(self):
         try:
@@ -195,4 +207,90 @@ class RetrievalService:
         retrieved_images = resize_images(retrieved_images, self.config)
 
         self.retrieval_round += 1
+        return retrieved_images, scores, retrieved_image_paths
+
+
+class RetrievalServiceVisual(RetrievalService):
+    def __init__(
+        self,
+        config: Dict[str, Any],
+        device: str = "cuda" if torch.cuda.is_available() else "cpu",
+        alpha: float = 0.6,
+        beta: float = 0.2,
+        gamma: float = 0.2,
+        multiple: bool = True,
+    ):
+        super().__init__(
+            config=config,
+            device=device,
+            alpha=alpha,
+            beta=beta,
+            gamma=gamma,
+            multiple=multiple
+        )
+        self._init_image_based_relevance_feedback()
+
+    def _init_image_based_relevance_feedback(self):
+        self.image_based_relevance_feedback = ImageBasedVLMRelevanceFeedback(
+            vlm_wrapper_retrieval=self.wrapper,
+        )
+
+    def process_and_apply_feedback(
+        self,
+        query: str,
+        top_k: int,
+        relevant_image_paths: List[str],
+        annotator_json_boxes_list: Optional[List[Any]] = None,
+        fuse_initial_query: bool = False,
+    ):
+        relevance_feedback_results = self.image_based_relevance_feedback(
+            query=query,
+            relevant_image_paths=relevant_image_paths,
+            annotator_json_boxes_list=annotator_json_boxes_list,
+            top_k_feedback=top_k
+        )
+
+        relevant_segments = relevance_feedback_results["relevant_segments"]
+        irrelevant_segments = relevance_feedback_results["irrelevant_segments"]
+
+        with torch.no_grad():
+            if relevant_segments is not None and relevant_segments:
+                positive_embeddings = self.wrapper.get_image_embeddings(
+                    self.wrapper.process_inputs(images=relevant_segments)
+                )
+            else:
+                positive_embeddings = None
+            if irrelevant_segments is not None and irrelevant_segments:
+                negative_embeddings = self.wrapper.get_image_embeddings(
+                    self.wrapper.process_inputs(images=irrelevant_segments)
+                )
+            else:
+                negative_embeddings = None
+            
+            processed_query = self.wrapper.process_inputs(text=query)
+            with torch.no_grad():
+                query_embedding = self.wrapper.get_text_embeddings(processed_query)
+
+            rocchio_query_embedding = (self.accumulated_query_embeddings["query_embedding"] + query_embedding) / 2 if (
+                fuse_initial_query
+            ) else self.accumulated_query_embeddings["query_embedding"]
+
+            self.accumulated_query_embeddings["query_embedding"] = self.rocchio_update(
+                query_embeddings=rocchio_query_embedding,
+                positive_embeddings=positive_embeddings,
+                negative_embeddings=negative_embeddings,
+            )
+        
+        scores, img_ids = self.index.search(
+            self.accumulated_query_embeddings["query_embedding"],
+            top_k
+        )
+        scores = scores.squeeze().tolist()
+        img_ids = img_ids.squeeze().tolist()
+        retrieved_image_paths = [self.candidate_image_paths[i] for i in img_ids]
+        retrieved_images = [Image.open(path) for path in retrieved_image_paths]
+        retrieved_images = resize_images(retrieved_images, self.config)
+
+        self.retrieval_round += 1
+
         return retrieved_images, scores, retrieved_image_paths

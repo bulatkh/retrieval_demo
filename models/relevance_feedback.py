@@ -10,10 +10,11 @@ from models.vlm_wrapper import VLMWrapperCaptioning, VLMWrapperRetrieval
 
 
 class RocchioUpdate:
-    def __init__(self, alpha: float = 0.8, beta: float = 0.1, gamma: float = 0.1):
+    def __init__(self, alpha: float = 0.8, beta: float = 0.1, gamma: float = 0.1, multiple: bool = False):
         self.alpha = alpha
         self.beta = beta
         self.gamma = gamma
+        self.multiple = multiple
 
     def __call__(
         self,
@@ -22,7 +23,18 @@ class RocchioUpdate:
         negative_embeddings: Optional[torch.Tensor] = None,
         norm_output: bool = True
     ):
-        return self.rocchio_update(
+        if not self.multiple:
+            return self.rocchio_update(
+                query_embeddings,
+                positive_embeddings,
+                negative_embeddings,
+                self.alpha,
+                self.beta,
+                self.gamma,
+                norm_output
+            )
+        else:
+            return self.rocchio_update_multiple(
             query_embeddings,
             positive_embeddings,
             negative_embeddings,
@@ -54,7 +66,7 @@ class RocchioUpdate:
             beta: coefficient for positive feedback
             gamma: coefficient for negative feedback
             norm_output: whether to normalize the output
-        
+
         If both avg_relevance_vector and avg_non_relevance_vector are None or beta and gamma are 0,
         the query embeddings are returned unchanged.
         """
@@ -69,6 +81,39 @@ class RocchioUpdate:
             beta * avg_relevance_vector - \
             gamma * avg_non_relevance_vector
         )
+        if norm_output:
+            updated_query_embeddings = F.normalize(updated_query_embeddings, p=2, dim=-1)
+        return updated_query_embeddings
+
+    def rocchio_update_multiple(
+        self,
+        query_embeddings: torch.Tensor,
+        positive_embeddings: Optional[torch.Tensor] = None,
+        negative_embeddings: Optional[torch.Tensor] = None,
+        alpha: float = 0.8,
+        beta: float = 0.1,
+        gamma: float = 0.1,
+        norm_output: bool = True
+    ):
+        """
+        Update the query embeddings using Rocchio's algorithm
+            upd_q = alpha * q + beta * positive_feedback - gamma * negative_feedback
+        """
+        if negative_embeddings is None:
+            negative_embeddings = torch.zeros_like(query_embeddings)
+            gamma = 0.0
+        if positive_embeddings is None:
+            positive_embeddings = torch.zeros_like(query_embeddings)
+            beta = 0.0
+
+        beta_feedback = beta / len(positive_embeddings)
+        gamma_feedback = gamma / len(negative_embeddings)
+        updated_query_embeddings = alpha * query_embeddings
+
+        for positive_embedding in positive_embeddings:
+            updated_query_embeddings += beta_feedback * positive_embedding
+        for negative_embedding in negative_embeddings:
+            updated_query_embeddings -= gamma_feedback * negative_embedding
         if norm_output:
             updated_query_embeddings = F.normalize(updated_query_embeddings, p=2, dim=-1)
         return updated_query_embeddings
@@ -111,7 +156,7 @@ class CaptionVLMRelevanceFeedback(RelevanceFeedback):
     ):
         if len(relevant_image_paths) < top_k_feedback:
             raise ValueError(f"Number of images is less than {top_k_feedback}.")
-        
+
         text_prompt = self._get_prompt(prompt_based_on_query, prompt)
 
         images = []
@@ -133,7 +178,7 @@ class CaptionVLMRelevanceFeedback(RelevanceFeedback):
                     images_vlm.append(img_fragment)
                     prompts_vlm.append(text_prompt.format(query.lower(), annot["label"].lower()))
                     relevant_mask.append(annot["label"] == "Relevant")
-        
+
         if relevant_captions is None and irrelevant_captions is None:
             vlm_outputs = self._generate_captions(
                 prompts_vlm=prompts_vlm,
@@ -141,8 +186,8 @@ class CaptionVLMRelevanceFeedback(RelevanceFeedback):
             )
 
             relevant_mask = np.array(relevant_mask)
-            vlm_outputs = np.array(vlm_outputs)       
-            
+            vlm_outputs = np.array(vlm_outputs)
+
             relevant_captions = vlm_outputs[relevant_mask == 1].tolist()
             irrelevant_captions = vlm_outputs[relevant_mask == 0].tolist()
 
@@ -195,7 +240,7 @@ class CaptionVLMRelevanceFeedback(RelevanceFeedback):
     ) -> str:
         if prompt is not None:
             return prompt
-        
+
         if prompt_based_on_query:
             text_prompt = (
                 "User is looking for: {}. "
@@ -234,56 +279,115 @@ class CaptionVLMRelevanceFeedback(RelevanceFeedback):
         vlm_outputs: List[str],
     ) -> List[Image.Image]:
         """Create images with caption overlays using torchvision draw_bounding_boxes"""
-        
+
         images_with_captions = []
         caption_idx = 0
-        
+
         for image, annotations in zip(images, annotator_json_boxes_list):
             if annotations is None:
                 images_with_captions.append(image)
                 continue
-            
+
             # Resize image and convert to RGB if needed
             image_resized = image.resize((self.img_size, self.img_size))
             if image_resized.mode != 'RGB':
                 image_resized = image_resized.convert('RGB')
-            
+
             # Create a copy to draw on
             image_with_boxes = image_resized.copy()
             draw = ImageDraw.Draw(image_with_boxes)
-            
+
             for annot in annotations:
                 x1, y1 = annot["xmin"], annot["ymin"]
                 x2, y2 = annot["xmax"], annot["ymax"]
-                
+
                 caption = vlm_outputs[caption_idx]
                 label = f"{caption}"
-                
+
                 box_color = "green" if annot["label"] == "Relevant" else "red"
                 text_color = "white"
-                
+
                 draw.rectangle([x1, y1, x2, y2], outline=box_color, width=2)
-                
+
                 try:
                     bbox = draw.textbbox((0, 0), label, font_size=20)
                     text_width = bbox[2] - bbox[0]
                     text_height = bbox[3] - bbox[1]
                 except AttributeError:
                     text_width, text_height = draw.textsize(label)
-                
+
                 bg_x1 = x1
                 bg_y1 = max(0, y1 - text_height - 4)
-                bg_x2 = min(self.img_size, x1 + text_width + 4) 
+                bg_x2 = min(self.img_size, x1 + text_width + 4)
                 bg_y2 = y1
-                
+
                 draw.rectangle([bg_x1, bg_y1, bg_x2, bg_y2], fill=box_color)
-            
+
                 text_x = x1 + 2
                 text_y = max(2, y1 - text_height - 2)
                 draw.text((text_x, text_y), label, fill=text_color)
-                
+
                 caption_idx += 1
-            
+
             images_with_captions.append(image_with_boxes)
-        
+
         return images_with_captions
+
+
+class ImageBasedVLMRelevanceFeedback(RelevanceFeedback):
+    def __init__(
+        self,
+        vlm_wrapper_retrieval: VLMWrapperRetrieval,
+        img_size: int = 224,
+    ):
+        self.vlm_wrapper_retrieval = vlm_wrapper_retrieval
+        self.img_size = img_size
+
+    def __call__(
+        self,
+        query: str,
+        relevant_image_paths: List[str],
+        annotator_json_boxes_list: Optional[List[Any]] = None,
+        top_k_feedback: int = 5,
+    ):
+        if len(relevant_image_paths) < top_k_feedback:
+            raise ValueError(f"Number of images is less than {top_k_feedback}.")
+
+        images = []
+        for image_path in relevant_image_paths:
+            image = Image.open(image_path)
+            images.append(image)
+
+        segments = self._extract_image_segments(
+            images=images,
+            annotator_json_boxes_list=annotator_json_boxes_list
+        )
+
+        return segments
+
+    def _extract_image_segments(
+        self,
+        images: List[Image.Image],
+        annotator_json_boxes_list: List[Dict[str, Any]]
+    ) -> List[Image.Image]:
+        irrelevant_segments = []
+        relevant_segments = []
+        for i in range(len(annotator_json_boxes_list)):
+            if annotator_json_boxes_list[i] is not None:
+                for annot in annotator_json_boxes_list[i]:
+                    segment = np.array(
+                        images[i].resize(
+                            (self.img_size, self.img_size), Image.BICUBIC
+                        )
+                    )[annot["ymin"]:annot["ymax"], annot["xmin"]:annot["xmax"]]
+                    segment = Image.fromarray(segment).resize((self.img_size, self.img_size))
+                    if annot["label"] == "Relevant":
+                        relevant_segments.append(segment)
+                    elif annot["label"] == "Irrelevant":
+                        irrelevant_segments.append(segment)
+                    else:
+                        raise ValueError(f"Invalid label: {annot['label']}")
+        return {
+            "relevant_segments": relevant_segments,
+            "irrelevant_segments": irrelevant_segments
+        }
