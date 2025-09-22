@@ -1,0 +1,5 @@
+gradio==5.29.0
+gradio_image_annotation==0.2.6
+httpx==0.25.2
+pillow==11.1.0
+numpy==1.25.2

@@ -12,6 +12,7 @@ import faiss
 from models.configs import get_model_config
 from models.llava import init_llava
 from models.relevance_feedback import CaptionVLMRelevanceFeedback, RocchioUpdate
+from utils.image_utils import resize_images
 from utils.utils import get_timestamp, load_yaml, save_json
 
 
@@ -84,13 +85,6 @@ captioning_relevance_feedback = CaptionVLMRelevanceFeedback(
 rocchio_update = RocchioUpdate(alpha=0.6, beta=0.2, gamma=0.2)
 
 
-def resize_images_with_processor(images, processor):
-    images_resized = [image.resize((config["IMG_SIZE"], config["IMG_SIZE"])) for image in images]
-    if images_resized[0].mode != 'RGB':
-        images_resized = [image.convert('RGB') for image in images_resized]
-    return images_resized
-
-
 def update_logs_retrieval(experiment_id, retrieval_round, user_query, top_k, retrieved_image_paths, scores):
     logs["experiments"][experiment_id].append(
         {
@@ -150,7 +144,7 @@ def image_search(query, top_k=5):
     img_ids = img_ids.squeeze().tolist()
     retrieved_image_paths = [candidate_image_paths[i] for i in img_ids]
     retrieved_images = [Image.open(path) for path in retrieved_image_paths]
-    retrieved_images = resize_images_with_processor(retrieved_images, wrapper.processor)
+    retrieved_images = resize_images(retrieved_images, config)
 
     update_logs_retrieval(experiment_id, retrieval_round, query, top_k, retrieved_image_paths, scores)
 
@@ -189,6 +183,7 @@ def feedback_loop(
     fuse_initial_query: bool = False
 ):
     """Apply feedback to the image search"""
+    print(annotator_json_boxes_list)
     global retrieval_round
     
     processed_query = wrapper.process_inputs(text=query)
@@ -220,7 +215,7 @@ def feedback_loop(
     img_ids = img_ids.squeeze().tolist()
     retrieved_image_paths = [candidate_image_paths[i] for i in img_ids]
     retrieved_images = [Image.open(path) for path in retrieved_image_paths]
-    retrieved_images = resize_images_with_processor(retrieved_images, wrapper.processor)
+    retrieved_images = resize_images(retrieved_images, config)
 
     update_logs_feedback(
         experiment_id,

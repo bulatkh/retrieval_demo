@@ -101,7 +101,7 @@ class CaptionVLMRelevanceFeedback(RelevanceFeedback):
         self,
         query: str,
         relevant_image_paths: List[str],
-        annotator_json_boxes_list: Optional[List[Dict[str, Any]]] = None,
+        annotator_json_boxes_list: Optional[List[Any]] = None,
         visualization: bool = False,
         top_k_feedback: int = 5,
         prompt_based_on_query: bool = False,
@@ -130,7 +130,6 @@ class CaptionVLMRelevanceFeedback(RelevanceFeedback):
                     img = np.array(images[i].resize((self.img_size, self.img_size), Image.BICUBIC))
                     img_fragment = img[annot["ymin"]:annot["ymax"], annot["xmin"]:annot["xmax"]]
                     img_fragment = Image.fromarray(img_fragment)
-                    img_fragment.save(f"img_fragment_{i}.png")
                     images_vlm.append(img_fragment)
                     prompts_vlm.append(text_prompt.format(query.lower(), annot["label"].lower()))
                     relevant_mask.append(annot["label"] == "Relevant")

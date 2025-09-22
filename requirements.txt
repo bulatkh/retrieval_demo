@@ -16,8 +16,12 @@ scipy==1.15.1
 scikit-learn==1.2.2
 tqdm==4.67.1
 protobuf==6.30.2
+pytest
 pytorch-lightning==2.5.0.post0
 torch==2.1.2
 torchmetrics==1.6.1
 transformers==4.48.3
 ultralytics==8.3.76
+fastapi==0.104.1
+uvicorn==0.24.0
+httpx==0.25.2
