@@ -4,10 +4,9 @@ from typing import Any, Dict, List, Optional, Union
 import torch
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, field_serializer
-import base64
-from io import BytesIO
 
 from services.retrieval_service import RetrievalService
+from utils.image_utils import image_to_base64
 from utils.utils import load_yaml
 
 app = FastAPI(title="Retrieval Server")
@@ -19,6 +18,7 @@ class SearchRequest(BaseModel):
 
 
 class SearchResponse(BaseModel):
+    images: List[str]
     image_paths: List[str]
     scores: List[float]
     success: bool
@@ -40,8 +40,8 @@ class ProcessFeedbackRequest(BaseModel):
 class ApplyFeedbackRequest(BaseModel):
     query: str
     top_k: int
-    positive_embeddings: Optional[List[float]] = None
-    negative_embeddings: Optional[List[float]] = None
+    relevant_captions: Optional[List[str]] = None
+    irrelevant_captions: Optional[List[str]] = None
     fuse_initial_query: bool = False
 
 
@@ -49,7 +49,7 @@ class ProcessFeedbackResponse(BaseModel):
     relevance_feedback_results: Dict[str, Any]
     success: bool
     message: str
-    
+
     @field_serializer('relevance_feedback_results')
     def serialize_relevance_feedback_results(self, value):
         if isinstance(value, dict):
@@ -59,21 +59,16 @@ class ProcessFeedbackResponse(BaseModel):
                     serialized[key] = val.tolist()
                 elif key == 'explanation' and val is not None:
                     if isinstance(val, list):
-                        serialized[key] = [self._image_to_base64(img) for img in val]
+                        serialized[key] = [image_to_base64(img) for img in val]
                     else:
-                        serialized[key] = self._image_to_base64(val)
+                        serialized[key] = image_to_base64(val)
                 else:
                     serialized[key] = val
             return serialized
         return value
-    
-    def _image_to_base64(self, image):
-        """Convert PIL Image to base64 string"""
-        buffer = BytesIO()
-        image.save(buffer, format='PNG')
-        return base64.b64encode(buffer.getvalue()).decode('utf-8')
 
 class ApplyFeedbackResponse(BaseModel):
+    images: List[str]
     image_paths: List[str]
     scores: List[float]
     success: bool
@@ -104,8 +99,10 @@ async def startup_event():
 @app.post("/search", response_model=SearchResponse)
 async def search_images(request: SearchRequest):
     try:
-        _, scores, image_paths = retrieval_service.search_images(request.query, request.top_k)
+        images, scores, image_paths = retrieval_service.search_images(request.query, request.top_k)
+        images = [image_to_base64(img) for img in images]
         return SearchResponse(
+            images=images,
             image_paths=image_paths,
             scores=scores,
             success=True,
@@ -144,11 +141,13 @@ async def apply_feedback(request: ApplyFeedbackRequest):
         images, scores, image_paths = retrieval_service.apply_feedback(
             query=request.query,
             top_k=request.top_k,
-            positive_embeddings=request.positive_embeddings,
-            negative_embeddings=request.negative_embeddings,
+            relevant_captions=request.relevant_captions,
+            irrelevant_captions=request.irrelevant_captions,
             fuse_initial_query=request.fuse_initial_query
         )
+        images = [image_to_base64(img) for img in images]
         return ApplyFeedbackResponse(
+            images=images,
             image_paths=image_paths,
             scores=scores,
             success=True,

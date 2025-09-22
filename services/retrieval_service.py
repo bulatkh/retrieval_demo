@@ -147,8 +147,8 @@ class RetrievalService:
         self,
         query: str,
         top_k: int,
-        positive_embeddings: Optional[Union[List[float], torch.Tensor]] = None,
-        negative_embeddings: Optional[Union[List[float], torch.Tensor]] = None,
+        relevant_captions: Optional[Union[List[str], torch.Tensor]] = None,
+        irrelevant_captions: Optional[Union[List[str], torch.Tensor]] = None,
         fuse_initial_query: bool = False
     ):
         """Extract feedback_loop function logic"""
@@ -160,10 +160,26 @@ class RetrievalService:
             fuse_initial_query
         ) else self.accumulated_query_embeddings["query_embedding"]
 
-        if positive_embeddings is not None and isinstance(positive_embeddings, list):
-            positive_embeddings = torch.tensor(positive_embeddings)
-        if negative_embeddings is not None and isinstance(negative_embeddings, list):
-            negative_embeddings = torch.tensor(negative_embeddings)
+        relevant_captions = [cap for cap in relevant_captions if cap != ""]
+        irrelevant_captions = [cap for cap in irrelevant_captions if cap != ""]
+
+        print(relevant_captions, irrelevant_captions)
+
+        with torch.no_grad():
+            if relevant_captions is not None and relevant_captions:
+                positive_embeddings = self.wrapper.get_text_embeddings(
+                        self.wrapper.process_inputs(text=relevant_captions)
+                    )
+                positive_embeddings = positive_embeddings.mean(dim=0)
+            else:
+                positive_embeddings = None
+            if irrelevant_captions is not None and irrelevant_captions:
+                negative_embeddings = self.wrapper.get_text_embeddings(
+                self.wrapper.process_inputs(text=irrelevant_captions)
+            )
+                negative_embeddings = negative_embeddings.mean(dim=0)
+            else:
+                negative_embeddings = None
 
         self.accumulated_query_embeddings["query_embedding"] = self.rocchio_update(
             query_embeddings=rocchio_query_embedding,

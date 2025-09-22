@@ -130,7 +130,6 @@ class CaptionVLMRelevanceFeedback(RelevanceFeedback):
                     img = np.array(images[i].resize((self.img_size, self.img_size), Image.BICUBIC))
                     img_fragment = img[annot["ymin"]:annot["ymax"], annot["xmin"]:annot["xmax"]]
                     img_fragment = Image.fromarray(img_fragment)
-                    img_fragment.save(f"img_fragment_{i}.png")
                     images_vlm.append(img_fragment)
                     prompts_vlm.append(text_prompt.format(query.lower(), annot["label"].lower()))
                     relevant_mask.append(annot["label"] == "Relevant")

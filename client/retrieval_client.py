@@ -1,8 +1,8 @@
-import asyncio
 from typing import Any, Dict, List, Optional, Union
 
 import httpx
-from PIL import Image
+
+from utils.image_utils import base64_to_image
 
 
 class RemoteRetrievalClient:
@@ -20,12 +20,11 @@ class RemoteRetrievalClient:
             data = response.json()
 
             # Load images from paths
-            images = [Image.open(path) for path in data["image_paths"]]
+            images = [base64_to_image(image) for image in data["images"]]
 
             return images, data["scores"], data["image_paths"]
         except Exception as e:
             raise Exception(f"Remote search failed: {str(e)}")
-
 
     async def process_feedback(
         self,
@@ -64,31 +63,32 @@ class RemoteRetrievalClient:
         self,
         query: str,
         top_k: int,
-        positive_embeddings: Optional[List[float]] = None,
-        negative_embeddings: Optional[List[float]] = None,
+        relevant_captions: Optional[List[str]] = None,
+        irrelevant_captions: Optional[List[str]] = None,
         fuse_initial_query: bool = False
     ):
         try:
+            relevant_captions = relevant_captions.split(",")
+            irrelevant_captions = irrelevant_captions.split(",")
             response = await self.client.post(
                 f"{self.server_url}/apply_feedback",
                 json={
                     "query": query,
                     "top_k": top_k,
-                    "positive_embeddings": positive_embeddings,
-                    "negative_embeddings": negative_embeddings,
+                    "relevant_captions": relevant_captions,
+                    "irrelevant_captions": irrelevant_captions,
                     "fuse_initial_query": fuse_initial_query
                 }
             )
             response.raise_for_status()
             data = response.json()
 
-            images = [Image.open(path) for path in data["image_paths"]]
+            images = [base64_to_image(image) for image in data["images"]]
 
             return images, data["scores"], data["image_paths"]
         except Exception as e:
             raise Exception(f"Remote feedback failed: {str(e)}")
 
-    
     async def health(self):
         try:
             response = await self.client.get(f"{self.server_url}/health")

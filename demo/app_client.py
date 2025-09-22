@@ -1,7 +1,5 @@
 import argparse
 import asyncio
-import base64
-import io
 import logging
 from typing import List, Optional
 
@@ -10,7 +8,7 @@ from gradio_image_annotation import image_annotator
 from PIL import Image
 
 from client.retrieval_client import RemoteRetrievalClient
-from utils.image_utils import resize_images
+from utils.image_utils import base64_to_image, resize_images
 from utils.utils import get_timestamp, load_yaml, save_json
 
 # Set up logging
@@ -141,6 +139,8 @@ async def process_feedback(feedback_query: str, top_k: int, image_paths: List[st
 async def apply_feedback(
     feedback_query: str,
     top_k: int,
+    relevant_captions: Optional[List[str]] = None,
+    irrelevant_captions: Optional[List[str]] = None,
     fuse_query: bool = False,
     use_stored_embeddings: bool = True
 ):
@@ -150,22 +150,11 @@ async def apply_feedback(
     try:
         logger.info(f"Applying feedback for query: {feedback_query}")
 
-        # Use stored embeddings if available and requested
-        positive_embeddings = None
-        negative_embeddings = None
-        
-        if use_stored_embeddings:
-            positive_embeddings = processed_feedback_embeddings.get("positive_embeddings")
-            negative_embeddings = processed_feedback_embeddings.get("negative_embeddings")
-            
-            if positive_embeddings is None and negative_embeddings is None:
-                logger.warning("No stored embeddings found, applying feedback without embeddings")
-
         images, scores, retrieved_image_paths = await retrieval_client.apply_feedback(
             query=feedback_query,
             top_k=top_k,
-            positive_embeddings=positive_embeddings,
-            negative_embeddings=negative_embeddings,
+            relevant_captions=relevant_captions,
+            irrelevant_captions=irrelevant_captions,
             fuse_initial_query=fuse_query
         )
 
@@ -334,7 +323,7 @@ with gr.Blocks(title="Multimodal Retrieval Demo - Client", css=css) as demo:
     gr.Markdown("# Text-to-Image Search (Remote Client)")
 
     image_top_k = gr.State(value=config.get("TOP_K", 5))
-    fuse_initial_query = gr.State(value=config.get("FUSE_INITIAL_QUERY", False))
+    fuse_initial_query = gr.State(value=config.get("FUSE_INITIAL_QUERY", True))
 
     with gr.Tab("Image Search"):
         with gr.Row():
@@ -450,11 +439,7 @@ with gr.Blocks(title="Multimodal Retrieval Demo - Client", css=css) as demo:
                 relevance_feedback_results = await process_feedback(feedback_query, top_k, image_paths, list(annotator_boxes))
                 explanation = relevance_feedback_results.get("explanation", [])
                 if explanation is not None:
-                    def base64_to_pil(img_str):
-                        img_bytes = base64.b64decode(img_str)
-                        return Image.open(io.BytesIO(img_bytes))
-
-                    explanation = [base64_to_pil(img) for img in explanation]
+                    explanation = [base64_to_image(img) for img in explanation]
                     relevance_feedback_results["explanation"] = explanation
                 logger.info(f"Relevance feedback results: {relevance_feedback_results}")
                 return format_outputs_process_feedback(
@@ -482,12 +467,16 @@ with gr.Blocks(title="Multimodal Retrieval Demo - Client", css=css) as demo:
         async def handle_apply_feedback(
             feedback_query,
             top_k,
+            relevant_captions,
+            irrelevant_captions,
             fuse_query
         ):
             try:
                 images, scores, retrieved_image_paths = await apply_feedback(
                     feedback_query,
                     top_k,
+                    relevant_captions,
+                    irrelevant_captions,
                     fuse_query
                 )
 
@@ -513,7 +502,7 @@ with gr.Blocks(title="Multimodal Retrieval Demo - Client", css=css) as demo:
 
         apply_feedback_btn.click(
             fn=handle_apply_feedback,
-            inputs=[query, image_top_k, fuse_initial_query],
+            inputs=[query, image_top_k, relevant_features, irrelevant_features, fuse_initial_query],
             outputs=[error_display, image_gallery, relevant_image_paths, *annotators],
         ).then(
             fn=lambda: [None for _ in annotator_json_boxes_list],
