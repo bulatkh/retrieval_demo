@@ -231,8 +231,8 @@ css = """
 .error-message {background-color: #FFE6E6; padding: 10px; border-radius: 5px; margin: 10px 0;}
 """
 
-with gr.Blocks(title="Multimodal Retrieval Demo - Visual Client", css=css) as demo:
-    gr.Markdown("# Text-to-Image Search (Visual Client)")
+with gr.Blocks(title="VisualReF: Images Only", css=css) as demo:
+    gr.Markdown("# Text-to-Image Search (Images Only)")
 
     image_top_k = gr.State(value=config.get("TOP_K", 5))
     fuse_initial_query = gr.State(value=config.get("FUSE_INITIAL_QUERY", True))
@@ -285,16 +285,7 @@ with gr.Blocks(title="Multimodal Retrieval Demo - Visual Client", css=css) as de
 
         async def handle_image_search(search_query, top_k):
             try:
-                if not search_query.strip():
-                    error_msg = '<div class="error-message">Please enter a search query.</div>'
-                    return [gr.HTML(visible=True, value=error_msg)] + [None] * (len(annotators) + 2)
-
-                # Run async search
                 images, scores, retrieved_image_paths = await image_search(search_query, top_k)
-
-                if not images:
-                    error_msg = '<div class="error-message">No images found or server error occurred.</div>'
-                    return [gr.HTML(visible=True, value=error_msg)] + [None] * (len(annotators) + 2)
 
                 formatted_outputs = format_outputs_image_search(images, scores, retrieved_image_paths)
                 return [gr.HTML(visible=False)] + formatted_outputs
@@ -318,10 +309,6 @@ with gr.Blocks(title="Multimodal Retrieval Demo - Visual Client", css=css) as de
             *annotator_boxes
         ):
             try:
-                if not feedback_query.strip():
-                    error_msg = '<div class="error-message">Please enter a feedback query.</div>'
-                    return [gr.HTML(visible=True, value=error_msg)] + [None] * (len(annotators) + 2)
-
                 if not image_paths:
                     error_msg = '<div class="error-message">Please search for images first.</div>'
                     return [gr.HTML(visible=True, value=error_msg)] + [None] * (len(annotators) + 2)
@@ -344,23 +331,16 @@ with gr.Blocks(title="Multimodal Retrieval Demo - Visual Client", css=css) as de
                     fuse_query
                 )
 
-                if not images:
-                    error_msg = '<div class="error-message">No images found or server error occurred.</div>'
-                    return [gr.HTML(visible=True, value=error_msg)] + [None] * (len(annotators) + 2)
-
                 formatted_outputs = format_outputs_feedback(
                     images,
                     scores,
                     retrieved_image_paths
                 )
-                # formatted_outputs = [gallery, retrieved_image_paths, *annotators]
-                # Expected outputs: [error_display, image_gallery, relevant_image_paths, *annotators]
                 gallery, retrieved_paths, *annotator_outputs = formatted_outputs
                 return [gr.HTML(visible=False), gallery, retrieved_paths] + annotator_outputs
             except Exception as e:
                 logger.error(f"Apply feedback error: {str(e)}")
-                error_msg = f'<div class="error-message">Error: {str(e)}</div>'
-                return [gr.HTML(visible=True, value=error_msg)] + [None] * (len(annotators) + 2)
+
 
         apply_feedback_btn.click(
             fn=handle_apply_feedback,
