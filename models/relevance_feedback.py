@@ -101,7 +101,7 @@ class CaptionVLMRelevanceFeedback(RelevanceFeedback):
         self,
         query: str,
         relevant_image_paths: List[str],
-        annotator_json_boxes_list: Optional[List[Dict[str, Any]]] = None,
+        annotator_json_boxes_list: Optional[List[Any]] = None,
         visualization: bool = False,
         top_k_feedback: int = 5,
         prompt_based_on_query: bool = False,
