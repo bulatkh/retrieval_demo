@@ -257,12 +257,14 @@ class RetrievalServiceVisual(RetrievalService):
                 positive_embeddings = self.wrapper.get_image_embeddings(
                     self.wrapper.process_inputs(images=relevant_segments)
                 )
+                positive_embeddings = positive_embeddings.mean(dim=0)
             else:
                 positive_embeddings = None
             if irrelevant_segments is not None and irrelevant_segments:
                 negative_embeddings = self.wrapper.get_image_embeddings(
                     self.wrapper.process_inputs(images=irrelevant_segments)
                 )
+                negative_embeddings = negative_embeddings.mean(dim=0)
             else:
                 negative_embeddings = None
             
