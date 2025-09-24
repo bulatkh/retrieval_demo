@@ -30,11 +30,11 @@ class RemoteRetrievalClient:
         self,
         query: str,
         relevant_image_paths: List[str],
-        user_prompt: Optional[str] = None,
         annotator_json_boxes_list: List[Optional[List[Dict[str, Any]]]],
         visualization: bool = False,
         top_k_feedback: int = 5,
         prompt_based_on_query: bool = False,
+        user_prompt: Optional[str] = None,
         relevant_captions: Optional[Union[List[str], str]] = None,
         irrelevant_captions: Optional[Union[List[str], str]] = None,
         prompt: Optional[str] = None
