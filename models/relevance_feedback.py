@@ -146,6 +146,7 @@ class CaptionVLMRelevanceFeedback(RelevanceFeedback):
         self,
         query: str,
         relevant_image_paths: List[str],
+        user_prompt: Optional[str] = None,
         annotator_json_boxes_list: Optional[List[Any]] = None,
         visualization: bool = False,
         top_k_feedback: int = 5,
@@ -157,7 +158,7 @@ class CaptionVLMRelevanceFeedback(RelevanceFeedback):
         if len(relevant_image_paths) < top_k_feedback:
             raise ValueError(f"Number of images is less than {top_k_feedback}.")
 
-        text_prompt = self._get_prompt(prompt_based_on_query, prompt)
+        user_prompt = self._get_prompt(prompt_based_on_query, prompt, user_prompt)
 
         images = []
         image_sizes = []
@@ -176,7 +177,7 @@ class CaptionVLMRelevanceFeedback(RelevanceFeedback):
                     img_fragment = img[annot["ymin"]:annot["ymax"], annot["xmin"]:annot["xmax"]]
                     img_fragment = Image.fromarray(img_fragment)
                     images_vlm.append(img_fragment)
-                    prompts_vlm.append(text_prompt.format(query.lower(), annot["label"].lower()))
+                    prompts_vlm.append(user_prompt.format(query.lower(), annot["label"].lower()))
                     relevant_mask.append(annot["label"] == "Relevant")
 
         if relevant_captions is None and irrelevant_captions is None:
@@ -236,22 +237,22 @@ class CaptionVLMRelevanceFeedback(RelevanceFeedback):
     def _get_prompt(
         self,
         prompt_based_on_query: bool,
-        prompt: Optional[str] = None
+        prompt: Optional[str] = None,
+        user_prompt: Optional[str] = None
     ) -> str:
-        if prompt is not None:
-            return prompt
-
         if prompt_based_on_query:
-            text_prompt = (
+            full_prompt = (
                 "User is looking for: {}. "
                 "The image is a fragment of a larger image annotated by user as {}. "
                 "Describe the visual content of the image fragment in fewer than 5 words. "
             )
         else:
-            text_prompt = (
+            full_prompt = (
                 "Describe the visual content of the image fragment in fewer than 5 words. "
             )
-        return text_prompt
+        if user_prompt is not None:
+            full_prompt = f"{full_prompt}. Focus on the following instructions: {user_prompt}"
+        return full_prompt
 
     def _generate_captions(
         self,

@@ -127,6 +127,7 @@ class RetrievalService:
         self,
         query: str,
         relevant_image_paths: List[str],
+        user_prompt: Optional[str] = None,
         annotator_json_boxes_list: Optional[List[Any]] = None,
         visualization: bool = False,
         top_k_feedback: int = 5,
@@ -138,6 +139,7 @@ class RetrievalService:
         relevance_feedback_results = self.captioning_relevance_feedback(
             query=query,
             relevant_image_paths=relevant_image_paths,
+            user_prompt=user_prompt,
             visualization=visualization,
             top_k_feedback=top_k_feedback,
             annotator_json_boxes_list=annotator_json_boxes_list,

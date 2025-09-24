@@ -30,6 +30,7 @@ class RemoteRetrievalClient:
         self,
         query: str,
         relevant_image_paths: List[str],
+        user_prompt: Optional[str] = None,
         annotator_json_boxes_list: List[Optional[List[Dict[str, Any]]]],
         visualization: bool = False,
         top_k_feedback: int = 5,
@@ -44,6 +45,7 @@ class RemoteRetrievalClient:
                 json={
                     "query": query,
                     "relevant_image_paths": relevant_image_paths,
+                    "user_prompt": user_prompt,
                     "annotator_json_boxes_list": annotator_json_boxes_list,
                     "visualization": visualization,
                     "top_k_feedback": top_k_feedback,

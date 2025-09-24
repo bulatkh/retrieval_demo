@@ -59,6 +59,7 @@ args = parse_args()
 
 # Load configuration
 config = load_yaml(args.config_path)
+captioning_model_config = load_yaml(args.captioning_model_config_path)
 logger.info(f"Loaded config from {args.config_path}")
 
 # Initialize retrieval client
@@ -111,7 +112,13 @@ async def image_search(search_query: str, top_k: int = 5):
 
 
 # Functions calling the server: process feedback
-async def process_feedback(feedback_query: str, top_k: int, image_paths: List[str], annotator_boxes: List):
+async def process_feedback(
+    feedback_query: str,
+    top_k: int,
+    image_paths: List[str],
+    annotator_boxes: List,
+    user_prompt: Optional[str] = None
+):
     """Process feedback from the annotator and store embeddings for later application"""
     global processed_feedback_embeddings
     
@@ -123,6 +130,8 @@ async def process_feedback(feedback_query: str, top_k: int, image_paths: List[st
             annotator_json_boxes_list=annotator_boxes,
             visualization=True,
             top_k_feedback=top_k,
+            user_prompt=user_prompt,
+            prompt=captioning_model_config.get("PROMPT", None)
         )
         
         processed_feedback_embeddings["positive_embeddings"] = relevance_feedback_results.get("positive")
@@ -369,6 +378,14 @@ with gr.Blocks(title="VisualReF: GenAI Captioning", css=css) as demo:
         relevant_image_paths = gr.State(value=None)
 
         with gr.Row():
+            user_prompt_text = gr.Textbox(
+                label="Instructions for the captioning model",
+                visible=True,
+                interactive=True,
+                placeholder="Enter instructions for the captioning model..."
+            )
+
+        with gr.Row():
             process_feedback_btn = gr.Button("Process Feedback", variant="secondary")
 
         with gr.Row():
@@ -418,6 +435,7 @@ with gr.Blocks(title="VisualReF: GenAI Captioning", css=css) as demo:
             feedback_query,
             top_k,
             image_paths,
+            user_prompt,
             *annotator_boxes
         ):
             try:
@@ -425,7 +443,8 @@ with gr.Blocks(title="VisualReF: GenAI Captioning", css=css) as demo:
                     return ["", "", []]
 
                 logger.info(f"{feedback_query}, {top_k}, {image_paths}, {list(annotator_boxes)}")
-                relevance_feedback_results = await process_feedback(feedback_query, top_k, image_paths, list(annotator_boxes))
+                relevance_feedback_results = await process_feedback(
+                    feedback_query, top_k, image_paths, list(annotator_boxes), user_prompt)
                 explanation = relevance_feedback_results.get("explanation", [])
                 if explanation is not None:
                     explanation = [base64_to_image(img) for img in explanation]
@@ -444,7 +463,7 @@ with gr.Blocks(title="VisualReF: GenAI Captioning", css=css) as demo:
 
         process_feedback_btn.click(
             fn=handle_process_feedback,
-            inputs=[query, image_top_k, relevant_image_paths, *annotator_json_boxes_list],
+            inputs=[query, image_top_k, relevant_image_paths, user_prompt_text, *annotator_json_boxes_list],
             outputs=[relevant_features, irrelevant_features, feedback_explanation_gallery],
         )
 

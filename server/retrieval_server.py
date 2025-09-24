@@ -28,6 +28,7 @@ class SearchResponse(BaseModel):
 class ProcessFeedbackRequest(BaseModel):
     query: str
     relevant_image_paths: List[str]
+    user_prompt: Optional[str] = None
     annotator_json_boxes_list: List[Any]
     visualization: bool = False
     top_k_feedback: int = 5
@@ -118,6 +119,7 @@ async def process_feedback(request: ProcessFeedbackRequest):
         relevance_feedback_results = retrieval_service.process_feedback(
             query=request.query,
             relevant_image_paths=request.relevant_image_paths,
+            user_prompt=request.user_prompt,
             annotator_json_boxes_list=request.annotator_json_boxes_list,
             visualization=request.visualization,
             top_k_feedback=request.top_k_feedback,
