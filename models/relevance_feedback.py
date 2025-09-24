@@ -10,11 +10,10 @@ from models.vlm_wrapper import VLMWrapperCaptioning, VLMWrapperRetrieval
 
 
 class RocchioUpdate:
-    def __init__(self, alpha: float = 0.8, beta: float = 0.1, gamma: float = 0.1, multiple: bool = False):
+    def __init__(self, alpha: float = 0.8, beta: float = 0.1, gamma: float = 0.1):
         self.alpha = alpha
         self.beta = beta
         self.gamma = gamma
-        self.multiple = multiple
 
     def __call__(
         self,
@@ -23,18 +22,7 @@ class RocchioUpdate:
         negative_embeddings: Optional[torch.Tensor] = None,
         norm_output: bool = True
     ):
-        if not self.multiple:
-            return self.rocchio_update(
-                query_embeddings,
-                positive_embeddings,
-                negative_embeddings,
-                self.alpha,
-                self.beta,
-                self.gamma,
-                norm_output
-            )
-        else:
-            return self.rocchio_update_multiple(
+        return self.rocchio_update(
             query_embeddings,
             positive_embeddings,
             negative_embeddings,
@@ -43,6 +31,7 @@ class RocchioUpdate:
             self.gamma,
             norm_output
         )
+
 
     def rocchio_update(
         self,
@@ -81,39 +70,6 @@ class RocchioUpdate:
             beta * avg_relevance_vector - \
             gamma * avg_non_relevance_vector
         )
-        if norm_output:
-            updated_query_embeddings = F.normalize(updated_query_embeddings, p=2, dim=-1)
-        return updated_query_embeddings
-
-    def rocchio_update_multiple(
-        self,
-        query_embeddings: torch.Tensor,
-        positive_embeddings: Optional[torch.Tensor] = None,
-        negative_embeddings: Optional[torch.Tensor] = None,
-        alpha: float = 0.8,
-        beta: float = 0.1,
-        gamma: float = 0.1,
-        norm_output: bool = True
-    ):
-        """
-        Update the query embeddings using Rocchio's algorithm
-            upd_q = alpha * q + beta * positive_feedback - gamma * negative_feedback
-        """
-        if negative_embeddings is None:
-            negative_embeddings = torch.zeros_like(query_embeddings)
-            gamma = 0.0
-        if positive_embeddings is None:
-            positive_embeddings = torch.zeros_like(query_embeddings)
-            beta = 0.0
-
-        beta_feedback = beta / len(positive_embeddings)
-        gamma_feedback = gamma / len(negative_embeddings)
-        updated_query_embeddings = alpha * query_embeddings
-
-        for positive_embedding in positive_embeddings:
-            updated_query_embeddings += beta_feedback * positive_embedding
-        for negative_embedding in negative_embeddings:
-            updated_query_embeddings -= gamma_feedback * negative_embedding
         if norm_output:
             updated_query_embeddings = F.normalize(updated_query_embeddings, p=2, dim=-1)
         return updated_query_embeddings

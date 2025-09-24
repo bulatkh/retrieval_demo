@@ -24,7 +24,6 @@ class RetrievalService:
         alpha: float = 0.6,
         beta: float = 0.2,
         gamma: float = 0.2,
-        multiple: bool = False,
     ):
         self.config = config
         self.captioning_model_config = captioning_model_config if captioning_model_config is not None else None
@@ -38,7 +37,7 @@ class RetrievalService:
         if self.captioning_model_config is not None:
             self._init_captioning_model()
             self._init_captioning_relevance_feedback()
-        self._init_rocchio_update(alpha=alpha, beta=beta, gamma=gamma, multiple=multiple)
+        self._init_rocchio_update(alpha=alpha, beta=beta, gamma=gamma)
         self._init_faiss_index()
 
     def _init_backbone(self):
@@ -87,7 +86,7 @@ class RetrievalService:
         gamma: float = 0.2,
         multiple: bool = False,
     ):
-        self.rocchio_update = RocchioUpdate(alpha=alpha, beta=beta, gamma=gamma, multiple=multiple)
+        self.rocchio_update = RocchioUpdate(alpha=alpha, beta=beta, gamma=gamma)
 
     def _init_faiss_index(self):
         try:
@@ -220,7 +219,6 @@ class RetrievalServiceVisual(RetrievalService):
         alpha: float = 0.6,
         beta: float = 0.2,
         gamma: float = 0.2,
-        multiple: bool = True,
     ):
         super().__init__(
             config=config,
@@ -228,7 +226,6 @@ class RetrievalServiceVisual(RetrievalService):
             alpha=alpha,
             beta=beta,
             gamma=gamma,
-            multiple=multiple
         )
         self._init_image_based_relevance_feedback()
 
